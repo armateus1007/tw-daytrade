@@ -23,6 +23,7 @@ from sources import (
     TAIFEX_FUT,
     TAIFEX_PCR,
     TPEX_COMPANY,
+    TPEX_QUOTES,
     TPEX_DAY,
     TWSE_COMPANY,
     TWSE_DAY,
@@ -75,15 +76,32 @@ def refresh_company_map() -> int:
                 rows.append((code, name, "TW"))
     except Exception:
         pass
-    try:
-        otc = requests.get(TPEX_COMPANY, headers=HEADERS, timeout=20).json()
+    def _otc_row(r: dict) -> tuple[str, str] | None:
+        code = ""
+        name = ""
+        for k, v in r.items():
+            ks = str(k)
+            if not code and any(x in ks for x in ("代號", "Code", "code", "SecuritiesCompany")):
+                code = str(v).strip()
+            if not name and any(x in ks for x in ("簡稱", "名稱", "Name", "Company")):
+                name = str(v).strip()
+        if code.isdigit() and 3 <= len(code) <= 6:
+            return code, name or code
+        return None
+
+    for url in (TPEX_COMPANY, TPEX_QUOTES):
+        try:
+            otc = requests.get(url, headers=HEADERS, timeout=25).json()
+        except Exception:
+            continue
+        if not isinstance(otc, list):
+            continue
         for r in otc:
-            code = str(r.get("SecuritiesCompanyCode") or r.get("公司代號") or "").strip()
-            name = str(r.get("CompanyName") or r.get("公司簡稱") or "").strip()
-            if code.isdigit():
-                rows.append((code, name, "TWO"))
-    except Exception:
-        pass
+            if not isinstance(r, dict):
+                continue
+            parsed = _otc_row(r)
+            if parsed:
+                rows.append((parsed[0], parsed[1], "TWO"))
     if not rows:
         return 0
     conn = _db()
@@ -117,8 +135,6 @@ def resolve(query: str) -> dict | None:
         ).fetchone()
     conn.close()
     if not row:
-        if q.isdigit():
-            return {"code": q, "name": q, "market": "TW"}
         return None
     return {"code": row[0], "name": row[1], "market": row[2]}
 
@@ -511,7 +527,7 @@ def fetch_news(name: str, code: str, us_tickers: list[str], n: int = 8) -> list[
 def bundle(query: str) -> dict:
     info = resolve(query)
     if not info:
-        raise ValueError(f"找不到股票：{query}")
+        raise ValueError(f"找不到上市或上櫃公司：{query}（請先按側欄更新名單；興櫃／權證不納入）")
     code = info["code"]
     tw = fetch_tw_daily(code, info.get("market", "TW"))
     flags = fetch_flags(code)

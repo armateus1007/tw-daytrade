@@ -7,6 +7,7 @@ TWSE_DAY = (
 TWSE_DAY_ALL = "https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json"
 TWSE_COMPANY = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
 TPEX_COMPANY = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"
+TPEX_QUOTES = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
 TPEX_DAY = (
     "https://www.tpex.org.tw/web/stock/aftertrading/daily_trading_info/"
     "st43_result.php?l=zh-tw&d={roc_ym}&stkno={code}"

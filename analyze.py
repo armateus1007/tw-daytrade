@@ -140,19 +140,8 @@ def decide(
         }
     if flags.get("notice"):
         add("注意股：可做但降風險，部位應更小", "none")
-    if flags.get("in_daytrade_list") is False and flags.get("market") == "TW":
-        return {
-            "side": "禁止",
-            "reason": ["未出現在上市現股當沖標的名單"],
-            "why_long": [],
-            "why_short": [],
-            "why_none": ["未出現在上市現股當沖標的名單"],
-            "entry": None,
-            "stop": None,
-            "target": None,
-        }
     if flags.get("in_daytrade_list") is False:
-        add("未在上市當沖名單（上櫃請自行用券商畫面確認可否當沖）", "none")
+        add("未在上市當沖名單（上櫃或非當沖標的仍可做隔日分析）")
     if flags.get("short_paused"):
         can_short = False
         add("名單註記可能暫停先賣後買，不建議放空", "none")
