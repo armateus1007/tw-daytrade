@@ -108,18 +108,17 @@ if go and q.strip():
     else:
         k3.metric("當沖比", daytrade.get("note") or "無")
 
-    st.write("**為什麼做多**")
-    for r in decision.get("why_long") or ["目前沒有明確做多理由"]:
-        st.write(f"- {r}")
-    st.write("**為什麼做空**")
-    for r in decision.get("why_short") or ["目前沒有明確做空理由"]:
-        st.write(f"- {r}")
-    st.write("**為什麼不做**")
-    for r in decision.get("why_none") or ["沒有硬性禁止條件"]:
-        st.write(f"- {r}")
-
-    st.write("**全部計分理由**")
-    for r in decision["reason"]:
+    side = decision.get("side") or ""
+    if side == "隔日偏多":
+        st.write("**做多原因**")
+        rows = decision.get("why_long") or decision.get("reason") or ["分數偏向多方"]
+    elif side == "隔日偏空":
+        st.write("**做空原因**")
+        rows = decision.get("why_short") or decision.get("reason") or ["分數偏向空方"]
+    else:
+        st.write("**不做原因**")
+        rows = decision.get("why_none") or decision.get("reason") or ["訊號不足或有限制"]
+    for r in rows:
         st.write(f"- {r}")
 
     col_a, col_b = st.columns(2)
