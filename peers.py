@@ -23,6 +23,7 @@ PEERS = {
 
 INDEX = ["^TWII", "QQQ", "^IXIC", "^GSPC", "^SOX"]
 US_SESSION = ["QQQ", "^IXIC", "^GSPC", "NVDA", "SOXX"]
+US_FUTS = ["ES=F", "NQ=F", "YM=F"]
 
 
 def peers_for(code: str) -> list[str]:
