@@ -7,7 +7,7 @@ from html.parser import HTMLParser
 
 import requests
 
-from sources import TWSE_DAYTRADE_VOL, TWSE_MARGIN, TWSE_MOPS, TWSE_T86
+from sources import TWSE_DAYTRADE_VOL, TWSE_EXRIGHT, TWSE_MARGIN, TWSE_MOPS, TWSE_T86
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (personal-research; tw-daytrade)",
@@ -101,6 +101,65 @@ def fetch_t86(code: str) -> dict:
     if not out["note"]:
         out["note"] = "三大法人抓失敗"
     return out
+
+
+def fetch_t86_series(code: str, want: int = 8) -> list[dict]:
+    """近幾日三大法人（張數級距用股）。天數少是為了不要一次打 20 次全市場表。"""
+    series = []
+    for d in _dates(18):
+        try:
+            payload = requests.get(TWSE_T86.format(date=d), headers=HEADERS, timeout=15).json()
+        except Exception:
+            continue
+        fields, data = _rows_of(payload)
+        if not data:
+            continue
+        row = _find_row(fields, data, code)
+        if not row:
+            continue
+        total = _pick(row, "三大法人買賣超")
+        foreign = _pick(row, "外陸資買賣超", "外資買賣超")
+        trust = _pick(row, "投信買賣超")
+        dealer = _pick(row, "自營商買賣超")
+        if total is None:
+            total = sum(x or 0 for x in (foreign, trust, dealer))
+        series.append(
+            {"date": d, "foreign": foreign, "trust": trust, "dealer": dealer, "total": total}
+        )
+        if len(series) >= want:
+            break
+    return series
+
+
+def fetch_exright(code: str) -> dict:
+    out = {"hit": False, "title": "", "note": ""}
+    try:
+        payload = requests.get(TWSE_EXRIGHT, headers=HEADERS, timeout=15).json()
+    except Exception as e:
+        out["note"] = f"除權息表失敗：{e}"
+        return out
+    fields, data = _rows_of(payload)
+    row = _find_row(fields, data, code)
+    if row:
+        out["hit"] = True
+        out["title"] = " ".join(str(v) for v in list(row.values())[:8])[:160]
+    return out
+
+
+EVENT1 = ("財報", "營收", "重大訊息", "合約", "投資", "庫藏", "增資", "減資", "併購", "收購", "董事會", "除權", "除息", "停工")
+EVENT2 = ("法說", "法人說明", "展望", "guidance", "investor conference")
+EVENT3 = ("產業", "伺服器", "半導體", "AI", "供應鏈")
+
+
+def classify_event(title: str, body: str = "") -> int:
+    t = (title or "") + " " + (body or "")
+    if any(k in t for k in EVENT1):
+        return 1
+    if any(k.lower() in t.lower() for k in EVENT2):
+        return 2
+    if any(k in t for k in EVENT3):
+        return 3
+    return 4
 
 
 def fetch_margin(code: str) -> dict:

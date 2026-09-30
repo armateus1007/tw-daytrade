@@ -20,6 +20,7 @@ TWSE_MARGIN = "https://www.twse.com.tw/exchangeReport/MI_MARGN?response=json&dat
 TWSE_DAYTRADE_VOL = "https://www.twse.com.tw/rwd/zh/dayTrading/TWTB4UALL?response=json&date={date}"
 TWSE_MOPS = "https://openapi.twse.com.tw/v1/opendata/t187ap04_L"
 TPEX_INST = "https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&t=D&se=EW&o=json"
+TWSE_EXRIGHT = "https://www.twse.com.tw/rwd/zh/exRight/TWT49U?response=json"
 
 TAIFEX_FUT = "https://openapi.taifex.com.tw/v1/DailyMarketReportFut"
 TAIFEX_PCR = "https://openapi.taifex.com.tw/v1/PutCallRatio"

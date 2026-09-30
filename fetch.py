@@ -11,8 +11,17 @@ import pandas as pd
 import requests
 import yfinance as yf
 
-from chips import fetch_article_text, fetch_daytrade_ratio, fetch_margin, fetch_mops, fetch_t86
-from peers import INDEX, US_SESSION, peers_for
+from chips import (
+    classify_event,
+    fetch_article_text,
+    fetch_daytrade_ratio,
+    fetch_exright,
+    fetch_margin,
+    fetch_mops,
+    fetch_t86,
+    fetch_t86_series,
+)
+from peers import INDEX, US_FUTS, US_SESSION, peers_for
 from sources import (
     NEWS_BIZ_TW,
     NEWS_BIZ_US,
@@ -243,7 +252,7 @@ def fetch_yahoo_daily(code: str, market: str) -> pd.DataFrame:
     return out.dropna(subset=["close"]).reset_index(drop=True)
 
 
-def fetch_tw_daily(code: str, market: str = "TW", months: int = 3) -> pd.DataFrame:
+def fetch_tw_daily(code: str, market: str = "TW", months: int = 4) -> pd.DataFrame:
     if market == "TWO":
         df = fetch_tpex_daily(code, months)
         if df.empty:
@@ -412,39 +421,17 @@ def _to_float(v):
         return None
 
 
-def fetch_tx() -> dict:
-    """期交所公告：台指期近月日盤（最新已公布交易日）。"""
-    out = {"ok": False, "contract": "TX", "last": None, "chg_pct": None, "volume": None, "note": ""}
-    try:
-        rows = requests.get(TAIFEX_FUT, headers=HEADERS, timeout=20).json()
-    except Exception as e:
-        out["note"] = f"台指期 OpenAPI 失敗：{e}"
-        return out
-    if not isinstance(rows, list) or not rows:
-        out["note"] = "台指期無資料"
-        return out
-    tx_rows = []
-    for r in rows:
-        if not isinstance(r, dict):
-            continue
-        code = str(r.get("Contract") or r.get("ContractCode") or r.get("契約") or "")
-        session = str(r.get("TradingSession") or r.get("交易時段") or "")
-        if "TX" not in code.upper() and "臺股期貨" not in str(r.values()):
-            # 欄位名不穩定，同時看契約代號
-            raw = " ".join(str(x) for x in r.values())
-            if "TX" not in raw and "臺股期貨" not in raw:
-                continue
-        if session and ("盤後" in session or "After" in session):
-            continue
-        tx_rows.append(r)
-    # 近月：挑成交量最大的 TX
+def _tx_pick(rows: list, night: bool) -> dict | None:
     best = None
     best_vol = -1
     for r in rows:
-        raw = " ".join(str(x) for x in (r.values() if isinstance(r, dict) else []))
+        if not isinstance(r, dict):
+            continue
+        raw = " ".join(str(x) for x in r.values())
         if "TX" not in raw and "臺股期貨" not in raw:
             continue
-        if "盤後" in raw:
+        is_night = ("盤後" in raw) or ("After" in raw) or ("夜" in raw)
+        if night != is_night:
             continue
         vol = _to_float(r.get("TradingVolume") or r.get("Volume") or r.get("成交量") or r.get("合計成交量"))
         close = _to_float(
@@ -459,11 +446,42 @@ def fetch_tx() -> dict:
         v = vol or 0
         if v >= best_vol:
             best_vol = v
-            best = {"last": close, "chg_pct": chg, "volume": vol, "raw": raw[:80]}
-    if not best:
-        out["note"] = "有期貨資料但找不到 TX 近月"
+            best = {"last": close, "chg_pct": chg, "volume": vol}
+    return best
+
+
+def fetch_tx() -> dict:
+    """期交所：台指期近月日盤＋盤後／夜盤（已公布）。"""
+    out = {
+        "ok": False,
+        "contract": "TX",
+        "last": None,
+        "chg_pct": None,
+        "volume": None,
+        "night_ok": False,
+        "night_last": None,
+        "night_chg_pct": None,
+        "note": "",
+    }
+    try:
+        rows = requests.get(TAIFEX_FUT, headers=HEADERS, timeout=20).json()
+    except Exception as e:
+        out["note"] = f"台指期 OpenAPI 失敗：{e}"
         return out
-    out.update(ok=True, last=best["last"], chg_pct=best["chg_pct"], volume=best["volume"])
+    if not isinstance(rows, list) or not rows:
+        out["note"] = "台指期無資料"
+        return out
+    day = _tx_pick(rows, night=False)
+    night = _tx_pick(rows, night=True)
+    if day:
+        out.update(ok=True, last=day["last"], chg_pct=day["chg_pct"], volume=day["volume"])
+    if night:
+        out.update(night_ok=True, night_last=night["last"], night_chg_pct=night["chg_pct"])
+        if not out["ok"]:
+            out.update(ok=True, last=night["last"], chg_pct=night["chg_pct"], volume=night["volume"])
+    if not day and not night:
+        out["note"] = "有期貨資料但找不到 TX"
+        return out
     try:
         pcr = requests.get(TAIFEX_PCR, headers=HEADERS, timeout=15).json()
         if isinstance(pcr, list) and pcr:
@@ -476,6 +494,10 @@ def fetch_tx() -> dict:
     except Exception:
         pass
     return out
+
+
+def fetch_us_futs() -> pd.DataFrame:
+    return fetch_us(US_FUTS)
 
 
 def fetch_news(name: str, code: str, us_tickers: list[str], n: int = 8) -> list[dict]:
@@ -533,6 +555,7 @@ def bundle(query: str) -> dict:
     flags = fetch_flags(code)
     us_list = list(dict.fromkeys(peers_for(code) + US_SESSION + INDEX))
     us = fetch_us(us_list)
+    us_futs = fetch_us_futs()
     index = fetch_index()
     tx = fetch_tx()
     news = fetch_news(info["name"], code, peers_for(code))
@@ -540,19 +563,33 @@ def bundle(query: str) -> dict:
     if not tw.empty and "volume_share" in tw.columns:
         vol = float(tw["volume_share"].iloc[-1])
     inst = fetch_t86(code)
+    inst_hist = fetch_t86_series(code, want=8)
+    if inst_hist:
+        n5 = inst_hist[:5]
+        inst["sum5"] = sum(x.get("total") or 0 for x in n5)
+        inst["sum_all"] = sum(x.get("total") or 0 for x in inst_hist)
+        inst["days"] = len(inst_hist)
     margin = fetch_margin(code)
     daytrade = fetch_daytrade_ratio(code, vol)
     mops = fetch_mops(code, info["name"])
+    for m in mops:
+        m["level"] = classify_event(m.get("title") or "", m.get("body") or "")
+    for n in news:
+        n["level"] = classify_event(n.get("title") or "", (n.get("summary") or "") + (n.get("body") or ""))
+    exright = fetch_exright(code)
     return {
         "info": info,
         "tw": tw,
         "us": us,
+        "us_futs": us_futs,
         "news": news,
         "flags": flags,
         "index": index,
         "tx": tx,
         "inst": inst,
+        "inst_hist": inst_hist,
         "margin": margin,
         "daytrade": daytrade,
         "mops": mops,
+        "exright": exright,
     }
