@@ -21,7 +21,12 @@ from chips import (
     fetch_t86,
     fetch_t86_series,
 )
-from peers import INDEX, US_FUTS, US_SESSION, peers_for
+from peers import INDEX, US_SESSION, peers_for
+
+try:
+    from peers import US_FUTS
+except ImportError:
+    US_FUTS = ["ES=F", "NQ=F", "YM=F"]
 from sources import (
     NEWS_BIZ_TW,
     NEWS_BIZ_US,
@@ -422,31 +427,33 @@ def _to_float(v):
 
 
 def _tx_pick(rows: list, night: bool) -> dict | None:
+    """近月 TX。欄位是 Last／%／Volume／TradingSession（一般、盤後），不是 Close。"""
     best = None
     best_vol = -1
     for r in rows:
         if not isinstance(r, dict):
             continue
-        raw = " ".join(str(x) for x in r.values())
-        if "TX" not in raw and "臺股期貨" not in raw:
+        if str(r.get("Contract") or "").strip() != "TX":
             continue
-        is_night = ("盤後" in raw) or ("After" in raw) or ("夜" in raw)
+        session = str(r.get("TradingSession") or "")
+        is_night = session == "盤後" or "盤後" in session or "夜" in session
         if night != is_night:
             continue
-        vol = _to_float(r.get("TradingVolume") or r.get("Volume") or r.get("成交量") or r.get("合計成交量"))
+        vol = _to_float(r.get("Volume") or r.get("TradingVolume") or r.get("成交量"))
         close = _to_float(
-            r.get("Close")
+            r.get("Last")
+            or r.get("Close")
             or r.get("ClosingPrice")
             or r.get("最後成交價")
-            or r.get("SettlePrice")
+            or r.get("SettlementPrice")
         )
-        chg = _to_float(r.get("ChangePercent") or r.get("漲跌%") or r.get("Change%"))
+        chg = _to_float(r.get("%") or r.get("ChangePercent") or r.get("漲跌%"))
         if close is None:
             continue
         v = vol or 0
         if v >= best_vol:
             best_vol = v
-            best = {"last": close, "chg_pct": chg, "volume": vol}
+            best = {"last": close, "chg_pct": chg, "volume": vol, "session": session}
     return best
 
 
